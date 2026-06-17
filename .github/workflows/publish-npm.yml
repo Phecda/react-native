@@ -36,6 +36,58 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Validate source run
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const runId = parseInt('${{ inputs.source-run-id }}', 10);
+            const {data: run} = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+
+            // Only accept artifacts from known publish workflows
+            const ALLOWED_WORKFLOWS = [
+              'publish-release.yml',
+              'nightly.yml',
+              'publish-bumped-packages.yml',
+            ];
+            const workflowName = run.path.split('/').pop();
+            if (!ALLOWED_WORKFLOWS.includes(workflowName)) {
+              core.setFailed(
+                `Source run ${runId} is from workflow "${run.path}" — ` +
+                `only runs from ${ALLOWED_WORKFLOWS.join(', ')} are accepted.`
+              );
+              return;
+            }
+
+            // Must have completed successfully
+            if (run.status !== 'completed' || run.conclusion !== 'success') {
+              core.setFailed(
+                `Source run ${runId} has status=${run.status}, conclusion=${run.conclusion}. ` +
+                `Only successful runs are accepted.`
+              );
+              return;
+            }
+
+            // Must be on a protected ref (main, *-stable, or a version tag)
+            const ref = run.head_branch || '';
+            const isProtectedRef =
+              ref === 'main' ||
+              /^\d+-stable$/.test(ref) ||
+              /^v0\.\d+\.\d+/.test(run.display_title);
+            if (!isProtectedRef) {
+              core.setFailed(
+                `Source run ${runId} ran on ref "${ref}" which is not a protected branch or release tag.`
+              );
+              return;
+            }
+
+            console.log(`✅ Source run ${runId} validated:`);
+            console.log(`   Workflow: ${workflowName}`);
+            console.log(`   Ref: ${ref}`);
+            console.log(`   Conclusion: ${run.conclusion}`);
       - name: Setup node.js
         uses: actions/setup-node@v6
         with:
