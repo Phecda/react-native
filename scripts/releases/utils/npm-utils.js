@@ -150,6 +150,26 @@ function publishPackage(
 }
 
 /**
+ * Runs `npm pack` in the given package directory and returns the
+ * tarball filename produced.
+ */
+function packPackage(
+  packagePath /*: string */,
+  execOptions /*: ?ExecOptsSync */,
+) /*: string */ {
+  const options /*: ExecOptsSync */ = execOptions
+    ? {...execOptions, cwd: packagePath}
+    : {cwd: packagePath};
+
+  const result = exec('npm pack', options);
+  if (result.code) {
+    throw new Error(`npm pack failed in ${packagePath}:\n${result.stderr}`);
+  }
+  // `npm pack` prints the tarball filename on the last non-empty line
+  return result.stdout.trim().split('\n').pop().trim();
+}
+
+/**
  * `packageName`: name of npm package
  * `tag`: npm tag like `latest` or `next`
  *
@@ -173,6 +193,7 @@ function getPackageVersionStrByTag(
 
 module.exports = {
   getNpmInfo,
+  packPackage,
   publishPackage,
   getPackageVersionStrByTag,
 };

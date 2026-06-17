@@ -7,13 +7,67 @@ on:
       - "*-stable"
 
 jobs:
-  # Delegate to the shared reusable workflow so every `npm publish` in
-  # this repo originates from one workflow file — required because npm
-  # Trusted Publishing only accepts one (org, repo, workflow_filename)
-  # per package.
-  publish_bumped_packages:
+  build_bumped_packages:
+    runs-on: ubuntu-latest
     if: github.repository == 'react/react-native'
-    uses: ./.github/workflows/publish-npm.yml
-    secrets: inherit
-    with:
-      mode: monorepo-packages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup node.js
+        uses: ./.github/actions/setup-node
+      - name: Run Yarn Install
+        uses: ./.github/actions/yarn-install
+      - name: Build packages
+        run: yarn build
+      - name: Build types
+        run: yarn build-types --skip-snapshot
+      - name: Pack bumped packages
+        run: node ./scripts/releases-ci/publish-updated-packages.js --pack-only
+      - name: Upload tarballs
+        # Only upload if the pack step produced tarballs (i.e. the commit
+        # message contained #publish-packages-to-npm and bumped packages
+        # were found).
+        if: ${{ hashFiles('npm-tarballs/manifest.json') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: npm-tarballs
+          path: npm-tarballs
+
+  # Dispatch the centralised publish-npm.yml workflow so it runs as the
+  # top-level workflow — making its OIDC `workflow_ref` claim match the
+  # Trusted Publisher entry configured on npmjs.com.
+  dispatch_npm_publish:
+    runs-on: ubuntu-latest
+    needs: [build_bumped_packages]
+    # Only dispatch if tarballs were produced
+    if: ${{ needs.build_bumped_packages.result == 'success' }}
+    permissions:
+      actions: write
+    steps:
+      - name: Check for tarballs artifact
+        id: check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const found = artifacts.data.artifacts.some(a => a.name === 'npm-tarballs');
+            core.setOutput('has-tarballs', String(found));
+      - name: Dispatch publish-npm.yml
+        if: steps.check.outputs.has-tarballs == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'publish-npm.yml',
+              ref: 'main',
+              inputs: {
+                'source-run-id': String(context.runId),
+              },
+            });
+            console.log(`Dispatched publish-npm.yml with source-run-id=${context.runId}`);

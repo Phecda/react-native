@@ -21,7 +21,7 @@ const {setVersion} = require('../releases/set-version');
 const {
   updateHermesVersionsToPrebuilt,
 } = require('../releases/utils/hermes-utils');
-const {getNpmInfo, publishPackage} = require('../releases/utils/npm-utils');
+const {getNpmInfo, packPackage, publishPackage} = require('../releases/utils/npm-utils');
 const {
   publishAndroidArtifactsToMaven,
   publishExternalArtifactsToMaven,
@@ -29,6 +29,8 @@ const {
 const {getBranchName} = require('../releases/utils/scm-utils');
 const {REACT_NATIVE_PACKAGE_DIR} = require('../shared/consts');
 const {getPackages, getReactNativePackage} = require('../shared/monorepoUtils');
+const fs = require('fs');
+const pathModule = require('path');
 const yargs = require('yargs');
 
 /**
@@ -61,40 +63,88 @@ async function main() {
       choices: ['dry-run', 'nightly', 'release'],
       default: 'dry-run',
     })
+    .option('p', {
+      alias: 'packOnly',
+      describe:
+        'Pack packages into tarballs + manifest.json instead of publishing.',
+      type: 'boolean',
+      default: false,
+    })
     .strict().argv;
 
   // $FlowFixMe[prop-missing]
   const buildType = argv.builtType;
+  // $FlowFixMe[prop-missing]
+  const packOnly = argv.packOnly;
 
-  await publishNpm(buildType);
+  await publishNpm(buildType, packOnly);
 }
 
-async function publishMonorepoPackages(tag /*: ?string */) {
+/*::
+type ManifestEntry = {
+  name: string,
+  version: string,
+  tarball: string,
+  tags: Array<string>,
+  access: ?string,
+};
+*/
+
+const TARBALLS_DIR = 'npm-tarballs';
+
+async function publishMonorepoPackages(
+  tag /*: ?string */,
+  packOnly /*: boolean */,
+  manifest /*: Array<ManifestEntry> */,
+) {
   const projectInfo = await getPackages({
     includePrivate: false,
     includeReactNative: false,
   });
 
   for (const packageInfo of Object.values(projectInfo)) {
-    console.log(`Publishing ${packageInfo.name}...`);
-    const result = publishPackage(packageInfo.path, {
-      tags: [tag],
-      access: 'public',
-    });
+    if (packOnly) {
+      console.log(`Packing ${packageInfo.name}...`);
+      const tarball = packPackage(packageInfo.path);
+      const src = pathModule.join(packageInfo.path, tarball);
+      fs.copyFileSync(src, pathModule.join(TARBALLS_DIR, tarball));
+      manifest.push({
+        name: packageInfo.name,
+        version: packageInfo.packageJson.version,
+        tarball,
+        tags: [tag].filter(Boolean),
+        access: 'public',
+      });
+      console.log(`Packed ${packageInfo.name}@${packageInfo.packageJson.version}`);
+    } else {
+      console.log(`Publishing ${packageInfo.name}...`);
+      const result = publishPackage(packageInfo.path, {
+        tags: [tag],
+        access: 'public',
+      });
 
-    const spec = `${packageInfo.name}@${packageInfo.packageJson.version}`;
+      const spec = `${packageInfo.name}@${packageInfo.packageJson.version}`;
 
-    if (result.code) {
-      throw new Error(
-        `Failed to publish ${spec} to npm. Stopping all nightly publishes`,
-      );
+      if (result.code) {
+        throw new Error(
+          `Failed to publish ${spec} to npm. Stopping all nightly publishes`,
+        );
+      }
+      console.log(`Published ${spec} to npm`);
     }
-    console.log(`Published ${spec} to npm`);
   }
 }
 
-async function publishNpm(buildType /*: BuildType */) /*: Promise<void> */ {
+async function publishNpm(
+  buildType /*: BuildType */,
+  packOnly /*: boolean */,
+) /*: Promise<void> */ {
   const {version, tag} = getNpmInfo(buildType);
+  const manifest /*: Array<ManifestEntry> */ = [];
+
+  if (packOnly) {
+    fs.mkdirSync(TARBALLS_DIR, {recursive: true});
+  }
 
   // For stable releases, ci job `prepare_package_for_release` handles this
   if (buildType === 'nightly') {
@@ -103,7 +153,7 @@ async function publishNpm(buildType /*: BuildType */) /*: Promise<void> */ {
 
     // Set same version for all monorepo packages
     await setVersion(version);
-    await publishMonorepoPackages(tag);
+    await publishMonorepoPackages(tag, packOnly, manifest);
   } else if (buildType === 'dry-run') {
     // Before updating React Native artifacts versions for dry-run, we check if the version has already been set.
     // If it has, we don't need to update the artifacts at all (at this will revert them back to 1000.0.0)
@@ -133,6 +183,25 @@ async function publishNpm(buildType /*: BuildType */) /*: Promise<void> */ {
   // produced by iOS
   // NPM publishing is done just after.
   publishExternalArtifactsToMaven(version, buildType);
+
+  if (packOnly) {
+    console.log(`Packing react-native@${version}...`);
+    const tarball = packPackage(REACT_NATIVE_PACKAGE_DIR);
+    const src = pathModule.join(REACT_NATIVE_PACKAGE_DIR, tarball);
+    fs.copyFileSync(src, pathModule.join(TARBALLS_DIR, tarball));
+    manifest.push({
+      name: 'react-native',
+      version,
+      tarball,
+      tags: [tag].filter(Boolean),
+      access: null,
+    });
+
+    const manifestPath = pathModule.join(TARBALLS_DIR, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    console.log(`Wrote ${manifestPath} with ${manifest.length} package(s)`);
+    return;
+  }
 
   const result = publishPackage(REACT_NATIVE_PACKAGE_DIR, {
     tags: [tag],

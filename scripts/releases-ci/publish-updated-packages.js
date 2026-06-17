@@ -8,9 +8,11 @@
  * @format
  */
 
-const {publishPackage} = require('../releases/utils/npm-utils');
+const {packPackage, publishPackage} = require('../releases/utils/npm-utils');
 const {getPackages} = require('../shared/monorepoUtils');
 const {execSync} = require('child_process');
+const fs = require('fs');
+const pathModule = require('path');
 const {parseArgs} = require('util');
 
 const PUBLISH_PACKAGES_TAG = '#publish-packages-to-npm';
@@ -18,30 +20,36 @@ const PUBLISH_PACKAGES_TAG = '#publish-packages-to-npm';
 const config = {
   options: {
     help: {type: 'boolean'},
+    'pack-only': {type: 'boolean', default: false},
   },
 };
 
 async function main() {
   const {
-    values: {help},
+    values: {help, 'pack-only': packOnly},
     /* $FlowFixMe[incompatible-type] Natural Inference rollout. See
      * https://fburl.com/workplace/6291gfvu */
   } = parseArgs(config);
 
   if (help) {
     console.log(`
-  Usage: node ./scripts/releases/publish-updated-packages.js
+  Usage: node ./scripts/releases/publish-updated-packages.js [--pack-only]
 
   Publishes all updated packages (excluding react-native) to npm. This script
   is intended to run from a CI workflow.
+
+  Options:
+    --pack-only  Pack packages into tarballs + manifest.json instead of publishing.
     `);
     return;
   }
 
-  await publishUpdatedPackages();
+  await publishUpdatedPackages(packOnly);
 }
 
-async function publishUpdatedPackages() {
+const TARBALLS_DIR = 'npm-tarballs';
+
+async function publishUpdatedPackages(packOnly /*: boolean */ = false) {
   let commitMessage;
 
   try {
@@ -89,9 +97,38 @@ async function publishUpdatedPackages() {
   );
 
   console.log('Done ✅');
-  console.log('Publishing updated packages to npm');
 
   const tags = getTagsFromCommitMessage(commitMessage);
+
+  if (packOnly) {
+    console.log('Packing updated packages into tarballs');
+    fs.mkdirSync(TARBALLS_DIR, {recursive: true});
+    const manifest = [];
+
+    for (const packageName of packagesToUpdate) {
+      const pck = packages[packageName];
+      console.log(`- Packing ${pck.name} (${pck.packageJson.version})`);
+      const tarball = packPackage(pck.path);
+      const src = pathModule.join(pck.path, tarball);
+      fs.copyFileSync(src, pathModule.join(TARBALLS_DIR, tarball));
+      manifest.push({
+        name: pck.name,
+        version: pck.packageJson.version,
+        tarball,
+        tags,
+        access: 'public',
+      });
+    }
+
+    const manifestPath = pathModule.join(TARBALLS_DIR, 'manifest.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    console.log(`Wrote ${manifestPath} with ${manifest.length} package(s)`);
+    console.log('Done ✅');
+    return;
+  }
+
+  console.log('Publishing updated packages to npm');
+
   const failedPackages = [];
 
   for (const packageName of packagesToUpdate) {

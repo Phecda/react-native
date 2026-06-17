@@ -1,5 +1,5 @@
 name: build-npm-package
-description: This action builds the NPM package and uploads it to Maven
+description: This action builds the NPM package and publishes to Maven. In pack-only mode it produces tarballs for deferred npm publish.
 inputs:
   release-type:
     required: true
@@ -8,6 +8,10 @@ inputs:
     description: The encryption key needed to store the Gradle Configuration cache
   skip-apple-prebuilts:
     description: When true, skip downloading prebuilt Apple artifacts (use when Apple prebuild jobs were skipped)
+    required: false
+    default: 'false'
+  pack-only:
+    description: When true, run `npm pack` instead of `npm publish` and output tarballs + manifest.json for deferred publishing via publish-npm.yml.
     required: false
     default: 'false'
 
@@ -42,7 +46,7 @@ runs:
     - name: Setup node.js
       uses: ./.github/actions/setup-node
       with:
-        registry-url: 'https://registry.npmjs.org'
+        registry-url: ${{ inputs.pack-only != 'true' && 'https://registry.npmjs.org' || '' }}
     - name: Install dependencies
       uses: ./.github/actions/yarn-install
     - name: Build packages
@@ -51,10 +55,7 @@ runs:
     - name: Build types
       shell: bash
       run: yarn build-types --skip-snapshot
-    # `npm publish` below authenticates via npm Trusted Publishing (OIDC).
-    # The caller (the reusable `publish-npm.yml` workflow) MUST grant
-    # `id-token: write`; this composite action runs inside that job.
-    - name: Publish NPM
+    - name: Build and pack/publish NPM
       shell: bash
       run: |
         echo "GRADLE_OPTS = $GRADLE_OPTS"
@@ -65,7 +66,17 @@ runs:
         else
           export ORG_GRADLE_PROJECT_reactNativeArchitectures="armeabi-v7a,arm64-v8a,x86,x86_64"
         fi
-        node ./scripts/releases-ci/publish-npm.js -t ${{ inputs.release-type }}
+        PACK_FLAG=""
+        if [[ "${{ inputs.pack-only }}" == "true" ]]; then
+          PACK_FLAG="--pack-only"
+        fi
+        node ./scripts/releases-ci/publish-npm.js -t ${{ inputs.release-type }} $PACK_FLAG
+    - name: Upload npm tarballs
+      if: ${{ inputs.pack-only == 'true' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: npm-tarballs
+        path: npm-tarballs
     - name: Upload npm logs
       uses: actions/upload-artifact@v6
       with:
