@@ -10,6 +10,10 @@ inputs:
     description: When true, skip downloading prebuilt Apple artifacts (use when Apple prebuild jobs were skipped)
     required: false
     default: 'false'
+  node-version:
+    description: Node.js version. npm Trusted Publishing requires npm >= 11.5.1 (Node >= 24).
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -42,6 +46,9 @@ runs:
     - name: Setup node.js
       uses: ./.github/actions/setup-node
       with:
+        # Trusted Publishing requires npm >= 11.5.1 (bundled with Node 24+).
+        # When node-version is not set, setup-node falls back to its default.
+        node-version: ${{ inputs.node-version }}
         registry-url: 'https://registry.npmjs.org'
     - name: Install dependencies
       uses: ./.github/actions/yarn-install

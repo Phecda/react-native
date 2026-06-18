@@ -185,6 +185,7 @@ jobs:
         with:
           release-type: ${{ needs.determine_mode.outputs.release-type }}
           gradle-cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
+          node-version: '24'
 
   # ─── Publish bumped monorepo packages (main/stable push) ─────────
   publish_bumped_packages:
@@ -203,6 +204,7 @@ jobs:
       - name: Setup node.js
         uses: ./.github/actions/setup-node
         with:
+          node-version: '24'
           registry-url: "https://registry.npmjs.org"
       # TEMPORARY DEBUG: print the OIDC token claims npm Trusted Publishing
       # matches against. A 404 from the OIDC exchange means these claims don't
