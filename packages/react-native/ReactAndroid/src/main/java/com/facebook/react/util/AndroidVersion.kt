@@ -28,6 +28,13 @@ internal object AndroidVersion {
   internal const val VERSION_CODE_BAKLAVA: Int = 36
 
   /**
+   * This is the version code for Android 17 (SDK Level 37). Internally at Meta this code is also
+   * compiled against SDK 34, so we need to retain this constant instead of using
+   * [Build.VERSION_CODES.CINNAMON_BUN] directly.
+   */
+  internal const val VERSION_CODE_CINNAMON_BUN: Int = 37
+
+  /**
    * android.R.attr.windowOptOutEdgeToEdgeEnforcement added in API 35. Internally at Meta this code
    * is compiled against an SDK that may not have this attribute defined.
    * https://cs.android.com/android/platform/superproject/main/+/main:frameworks/base/core/res/res/values/public-final.xml;l=3848
@@ -51,4 +58,13 @@ internal object AndroidVersion {
   fun isAtLeastTargetSdk36(context: Context): Boolean =
       Build.VERSION.SDK_INT >= VERSION_CODE_BAKLAVA &&
           context.applicationInfo.targetSdkVersion >= VERSION_CODE_BAKLAVA
+
+  /**
+   * This method is used to check if the current device is running Android 17 (SDK Level 37) or
+   * higher. Unlike the `isAtLeastTargetSdk*` helpers, this checks the device API level only and not
+   * the app's targetSdk, because Android 17 gates the local-network runtime permission for any app
+   * that declares it, regardless of targetSdk.
+   */
+  @JvmStatic
+  internal fun isAtLeastSdk37(): Boolean = Build.VERSION.SDK_INT >= VERSION_CODE_CINNAMON_BUN
 }
