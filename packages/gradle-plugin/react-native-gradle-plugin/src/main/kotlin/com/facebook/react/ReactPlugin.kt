@@ -122,9 +122,19 @@ class ReactPlugin : Plugin<Project> {
       // a rootProject-wide traversal from every library breaks on AGP 9, which errors when
       // `finalizeDsl` is registered after a project's DSL has been finalized.
       // See https://github.com/facebook/react-native/pull/57038.
+      //
+      // We skip projects that have already been evaluated: AGP finalizes a project's DSL during/
+      // after its evaluation, so registering a `finalizeDsl` callback on an already-evaluated
+      // project is "too late" and fails on AGP 9. In a regular app build the app is evaluated
+      // before its libraries (see ReactRootProjectPlugin's `evaluationDependsOn(":app")`), so every
+      // library is still pending here. In composite/monorepo builds (e.g. rn-tester, where
+      // ReactAndroid is a sibling) some library projects are already evaluated by this point; those
+      // already define their own namespace, so skipping them is safe.
       project.rootProject.allprojects { subproject ->
         subproject.pluginManager.withPlugin("com.android.library") {
-          configureNamespaceForLibraries(subproject)
+          if (!subproject.state.executed) {
+            configureNamespaceForLibraries(subproject)
+          }
         }
       }
     }
