@@ -8,17 +8,16 @@
 package com.facebook.react.devsupport
 
 import android.app.Activity
-import android.content.Context
 import android.content.pm.PackageManager
+import com.facebook.react.common.build.ReactBuildConfig
 import com.facebook.react.modules.core.PermissionAwareActivity
-import com.facebook.react.modules.systeminfo.AndroidInfoHelpers
 import com.facebook.react.util.AndroidVersion
 
 /**
  * Debug-only helper to request the runtime `ACCESS_LOCAL_NETWORK` permission needed to reach Metro
  * on Android 17 (SDK 37) devices, which gate local-network addresses (the emulator's `10.0.2.2`
- * alias, a device's Wi-Fi/LAN IP) for any app that declares the permission, regardless of targetSdk.
- * Loopback via `adb reverse` (`localhost`) is exempt.
+ * alias, a device's Wi-Fi/LAN IP). Requested only in debuggable builds, and always (like iOS), since
+ * the dev-server host can change at runtime (e.g. switching from `adb reverse` to a LAN IP).
  */
 internal object LocalNetworkPermissionUtil {
   private const val PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
@@ -42,28 +41,8 @@ internal object LocalNetworkPermissionUtil {
 
   /** Whether the `ACCESS_LOCAL_NETWORK` prompt must be shown before reaching the dev server. */
   private fun needsLocalNetworkPrompt(activity: Activity): Boolean {
+    if (!ReactBuildConfig.DEBUG) return false // dev-server only; never prompt in release builds
     if (!AndroidVersion.isAtLeastSdk37()) return false // enforced by the device, not app targetSdk
-    if (!isPermissionDeclared(activity)) return false // debug manifest only
-    if (activity.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED) return false
-    return !isExemptDevServerHost(activity) // loopback needs no permission
+    return activity.checkSelfPermission(PERMISSION) != PackageManager.PERMISSION_GRANTED
   }
-
-  /**
-   * True for loopback dev servers (`localhost` / `127.x` / `::1`, e.g. USB + `adb reverse`), which
-   * are exempt. The emulator's `10.0.2.2` is not loopback here and does need the permission.
-   */
-  private fun isExemptDevServerHost(context: Context): Boolean {
-    val host = AndroidInfoHelpers.getServerHost(context).substringBeforeLast(':').trim('[', ']')
-    return host == "localhost" || host == "::1" || host.startsWith("127.")
-  }
-
-  private fun isPermissionDeclared(activity: Activity): Boolean =
-      try {
-        activity.packageManager
-            .getPackageInfo(activity.packageName, PackageManager.GET_PERMISSIONS)
-            .requestedPermissions
-            ?.contains(PERMISSION) == true
-      } catch (_: PackageManager.NameNotFoundException) {
-        false
-      }
 }
