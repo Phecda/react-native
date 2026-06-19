@@ -113,6 +113,20 @@ class ReactPlugin : Plugin<Project> {
       configureCodegen(project, extension, rootExtension, isLibrary = false)
       configureResources(project, extension)
       configureBuildTypesForApp(project)
+
+      // Apply the namespace fallback to every Android library in the build, including third-party
+      // libraries that don't apply the `com.facebook.react` plugin and still rely on the manifest
+      // `package` attribute (which AGP 9 no longer accepts as a namespace). The per-library hook
+      // below only covers libraries that apply our plugin, so we additionally sweep all library
+      // subprojects from the app. We do this once, from the application project, because re-running
+      // a rootProject-wide traversal from every library breaks on AGP 9, which errors when
+      // `finalizeDsl` is registered after a project's DSL has been finalized.
+      // See https://github.com/facebook/react-native/pull/57038.
+      project.rootProject.allprojects { subproject ->
+        subproject.pluginManager.withPlugin("com.android.library") {
+          configureNamespaceForLibraries(subproject)
+        }
+      }
     }
 
     // Library Only Configuration
