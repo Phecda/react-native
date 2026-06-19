@@ -25,24 +25,27 @@ internal object LocalNetworkPermissionUtil {
   private const val PERMISSION_REQUEST_CODE = 1
 
   /**
-   * Requests the permission when needed and invokes [onResolved] once the user answers, returning
-   * `true` so the caller can defer startup; returns `false` when no request is needed (proceed
-   * immediately). Resolving before the first connection avoids racing the bundle load into a fatal
-   * "Unable to load script" crash.
+   * Invokes [onResolved] once it is safe to connect to Metro: immediately when no permission is
+   * needed, or after the user answers the `ACCESS_LOCAL_NETWORK` prompt otherwise.
    */
   @JvmStatic
-  fun requestLocalNetworkAccessIfNeeded(activity: Activity, onResolved: Runnable): Boolean {
+  fun requestLocalNetworkAccessIfNeeded(activity: Activity, onResolved: Runnable) {
+    if (activity is PermissionAwareActivity && needsLocalNetworkPrompt(activity)) {
+      activity.requestPermissions(arrayOf(PERMISSION), PERMISSION_REQUEST_CODE) { _, _, _ ->
+        onResolved.run()
+        true
+      }
+    } else {
+      onResolved.run()
+    }
+  }
+
+  /** Whether the `ACCESS_LOCAL_NETWORK` prompt must be shown before reaching the dev server. */
+  private fun needsLocalNetworkPrompt(activity: Activity): Boolean {
     if (!AndroidVersion.isAtLeastSdk37()) return false // enforced by the device, not app targetSdk
     if (!isPermissionDeclared(activity)) return false // debug manifest only
     if (activity.checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED) return false
-    if (isExemptDevServerHost(activity)) return false // loopback needs no permission
-    if (activity !is PermissionAwareActivity) return false // can't await the result
-
-    activity.requestPermissions(arrayOf(PERMISSION), PERMISSION_REQUEST_CODE) { _, _, _ ->
-      onResolved.run()
-      true
-    }
-    return true
+    return !isExemptDevServerHost(activity) // loopback needs no permission
   }
 
   /**

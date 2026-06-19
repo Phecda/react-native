@@ -169,10 +169,10 @@ public class ReactActivityDelegate {
                 };
           }
           if (mainComponentName != null) {
-            Runnable loadAppRunnable = () -> loadApp(mainComponentName);
-            if (!LocalNetworkPermissionUtil.requestLocalNetworkAccessIfNeeded(getPlainActivity(), loadAppRunnable)) {
-              loadAppRunnable.run();
-            }
+            LocalNetworkPermissionUtil.requestLocalNetworkAccessIfNeeded(
+              getPlainActivity(),
+              () -> loadApp(mainComponentName)
+            );
           }
         });
   }
