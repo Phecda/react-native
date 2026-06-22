@@ -58,13 +58,4 @@ internal object AndroidVersion {
   fun isAtLeastTargetSdk36(context: Context): Boolean =
       Build.VERSION.SDK_INT >= VERSION_CODE_BAKLAVA &&
           context.applicationInfo.targetSdkVersion >= VERSION_CODE_BAKLAVA
-
-  /**
-   * This method is used to check if the current device is running Android 17 (SDK Level 37) or
-   * higher. Unlike the `isAtLeastTargetSdk*` helpers, this checks the device API level only and not
-   * the app's targetSdk, because Android 17 gates the local-network runtime permission for any app
-   * that declares it, regardless of targetSdk.
-   */
-  @JvmStatic
-  internal fun isAtLeastSdk37(): Boolean = Build.VERSION.SDK_INT >= VERSION_CODE_CINNAMON_BUN
 }

@@ -9,6 +9,7 @@ package com.facebook.react.devsupport
 
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.os.Build
 import com.facebook.react.common.build.ReactBuildConfig
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.util.AndroidVersion
@@ -42,7 +43,7 @@ internal object LocalNetworkPermissionUtil {
   /** Whether the `ACCESS_LOCAL_NETWORK` prompt must be shown before reaching the dev server. */
   private fun needsLocalNetworkPrompt(activity: Activity): Boolean {
     if (!ReactBuildConfig.DEBUG) return false // dev-server only; never prompt in release builds
-    if (!AndroidVersion.isAtLeastSdk37()) return false // enforced by the device, not app targetSdk
+    if (Build.VERSION.SDK_INT < AndroidVersion.VERSION_CODE_CINNAMON_BUN) return false
     return activity.checkSelfPermission(PERMISSION) != PackageManager.PERMISSION_GRANTED
   }
 }
