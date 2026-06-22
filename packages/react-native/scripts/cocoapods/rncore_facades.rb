@@ -103,10 +103,11 @@ module RNCoreFacades
     # call once per `pod install`.
     #
     # `react_native_path` locates the real podspecs we mirror. version + subspecs +
-    # default_subspecs + resources are all DERIVED from the real spec so the facade
-    # stays graph- and resource-equivalent to the source pod. A facaded pod whose
-    # real podspec can't be read is a hard error (see load_real_spec) — silently
-    # shipping an empty facade would hide exactly the drift this guards against.
+    # default_subspecs are DERIVED from the real spec so the facade stays
+    # graph-equivalent to the source pod (resources are NOT carried — they live in
+    # the prebuilt artifact; see the note in the loop). A facaded pod whose real
+    # podspec can't be read is a hard error (see load_real_spec) — silently shipping
+    # an empty facade would hide exactly the drift this guards against.
     def self.generate(react_native_path, install_root, version, ios_version)
         @@install_root = install_root.to_s
         abs_base = File.join(@@install_root, FACADE_RELDIR)
@@ -114,7 +115,6 @@ module RNCoreFacades
         FACADE_PODS.each do |name, podspec_rel_path|
             podspec_path = File.join(react_native_path.to_s, podspec_rel_path)
             real = load_real_spec(podspec_path, name)
-            podspec_dir = File.dirname(podspec_path)
             dir = File.join(abs_base, name)
             FileUtils.mkdir_p(dir)
 
@@ -133,14 +133,11 @@ module RNCoreFacades
                 "dependencies" => { "React-Core-prebuilt" => [] },
             }
 
-            # Preserve non-code RESOURCES (privacy manifest, i18n bundles, ...). They
-            # don't shadow headers, and React-Core-prebuilt doesn't vend them, so the
-            # facade must carry them or prebuilt installs lose them. Globs are made
-            # relative to the facade dir so they resolve back to the real source tree.
-            resource_bundles = derive_resource_bundles(real, podspec_dir, dir)
-            spec["resource_bundles"] = resource_bundles unless resource_bundles.empty?
-            resources = derive_resources(real, podspec_dir, dir)
-            spec["resources"] = resources unless resources.empty?
+            # NOTE: the facade carries NO resources. The pods' non-code resources
+            # (e.g. the privacy manifest) are embedded directly in the prebuilt
+            # React.xcframework by the ios-prebuild compose (see ios-prebuild/privacy.js),
+            # so they reach both CocoaPods-prebuilt and SwiftPM from the artifact —
+            # the facade only needs to declare the React-Core-prebuilt dependency.
 
             # Re-vend the narrow set of angle-only framework headers that community
             # modules quote-import (see FACADE_REEXPOSED_HEADERS). The header is
@@ -187,8 +184,8 @@ module RNCoreFacades
 
     # Loads the real podspec so we can mirror its structure. A facaded pod MUST have
     # a readable real podspec — if it's missing or unparseable we raise rather than
-    # ship an empty facade, since that would silently drop subspecs/resources (the
-    # very drift this mechanism exists to prevent).
+    # ship an empty facade, since that would silently drop subspecs (the very drift
+    # this mechanism exists to prevent).
     def self.load_real_spec(path, name)
         unless File.exist?(path)
             raise "[RNCoreFacades] Real podspec for facaded pod '#{name}' not found at #{path}. " \
@@ -208,22 +205,6 @@ module RNCoreFacades
             .map(&:base_name)
     end
     private_class_method :derive_subspecs
-
-    # Effective resource_bundles of the real spec (e.g. React-Core_privacy), with
-    # globs rewritten relative to the facade dir so they point back at the real
-    # source files. Unions the `resource_bundle` (singular) and `resource_bundles`
-    # (plural) DSL forms.
-    def self.derive_resource_bundles(real, podspec_dir, facade_dir)
-        out = {}
-        [real.attributes_hash["resource_bundle"], real.attributes_hash["resource_bundles"]].each do |rb|
-            next unless rb.is_a?(Hash)
-            rb.each do |bundle, globs|
-                out[bundle] = Array(globs).map { |g| rel_glob(g, podspec_dir, facade_dir) }
-            end
-        end
-        out
-    end
-    private_class_method :derive_resource_bundles
 
     # Copy the re-exposed header(s) into the facade dir (flat) and return the
     # facade-relative source_files entries. `globs` are resolved against the real
@@ -247,20 +228,4 @@ module RNCoreFacades
         copied.uniq
     end
     private_class_method :copy_reexposed_headers
-
-    # Loose `resources` of the real spec, rewritten relative to the facade dir.
-    def self.derive_resources(real, podspec_dir, facade_dir)
-        Array(real.attributes_hash["resources"]).map { |g| rel_glob(g, podspec_dir, facade_dir) }
-    end
-    private_class_method :derive_resources
-
-    # Rewrite a glob declared relative to `podspec_dir` into one relative to
-    # `facade_dir`, so the generated facade (which lives under the app's build/)
-    # still resolves the resource in the react-native source tree.
-    def self.rel_glob(glob, podspec_dir, facade_dir)
-        require "pathname"
-        abs = File.expand_path(glob, podspec_dir)
-        Pathname.new(abs).relative_path_from(Pathname.new(facade_dir)).to_s
-    end
-    private_class_method :rel_glob
 end
