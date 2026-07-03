@@ -54,6 +54,7 @@ public open class PackagerConnectionSettings(private val appContext: Context) {
       } else {
         _cachedOrOverrideHost = host
       }
+      preferences.edit().putString(PREFS_DEBUG_SERVER_HOST_KEY, host).apply()
     }
 
   public open fun resetDebugServerHost() {
